@@ -102,3 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+.idea/
+in/
+repo/
+tmp/
+workspace/
+worker.json
+*.db

@@ -1,0 +1,9 @@
+[submodule "task_tracker_drone"]
+	path = task_tracker_drone
+	url = https://github.com/simon987/task_tracker_drone/
+[submodule "last.fm"]
+	path = last.fm
+	url = https://git.simon987.net/drone/last.fm
+[submodule "caa"]
+	path = caa
+	url = https://git.simon987.net/drone/caa.git
