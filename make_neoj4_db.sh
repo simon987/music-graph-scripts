@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-export NEO4J_HOME="/home/drone/Downloads/neo4j-community-3.5.3"
+export NEO4J_HOME="/home/drone/Documents/neo4j"
 export REPOSITORY="http://localhost:9999"
 export DATABASE="graph.db"
 

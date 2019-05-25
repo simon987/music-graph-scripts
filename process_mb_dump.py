@@ -313,40 +313,59 @@ with open("in/tag") as f:
             out.write(cols[0] + ",\"" + cols[1].replace("\"", "\"\"") + "\"\n")
 
 with open("repo/release_tag.csv", "w") as out:
-    out.write(":START_ID(Release),:END_ID(Tag),weight:int\n")
+    out.write(":START_ID(Release),:END_ID(Tag),weight:float\n")
 
+    # get max count
+    max_count = 0
     with open("in/release_group_tag") as f:
         for line in f:
             cols = line.split("\t")
+            max_count = max(max_count, int(cols[2]))
+    max_count = max_count / 4
 
-            if int(cols[2]) <= 0:
+    # weight is linear
+    with open("in/release_group_tag") as f:
+        for line in f:
+            cols = line.split("\t")
+            count = int(cols[2])
+            if count <= 0:
                 continue
-
             out.write(",".join((
                 release_groups[cols[0]][1],
                 cols[1],
-                cols[2],
+                str(max(min(count / max_count, 1), 0.2)),
             )) + "\n")
 
 with open("repo/artist_tag.csv", "w") as out:
-    out.write(":START_ID(Artist),:END_ID(Tag),weight:int\n")
+    out.write(":START_ID(Artist),:END_ID(Tag),weight:float\n")
 
+    # get max count
+    max_count = 0
+    with open("in/artist_tag") as f:
+        for line in f:
+            cols = line.split("\t")
+            max_count = max(max_count, int(cols[2]))
+    max_count = max_count / 4
+
+    # Weight is linear
     with open("in/artist_tag") as f:
         for line in f:
             cols = line.split("\t")
 
-            if int(cols[2]) <= 0:
+            count = int(cols[2])
+            if count <= 0:
                 continue
 
             out.write(",".join((
                 artists[cols[0]][1],
                 cols[1],
-                cols[2],
+                str(max(min(count / max_count, 1), 0.2)),
             )) + "\n")
 
 with open("repo/tag_tag.csv", "w") as out:
     out.write(":START_ID(Tag),:END_ID(Tag),weight:int\n")
 
+    # TODO: normalize weight so it's between [0,1]
     with open("in/tag_relation") as f:
         for line in f:
             cols = line.split("\t")
