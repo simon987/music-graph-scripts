@@ -1,5 +1,6 @@
 import os
 from collections import defaultdict
+import re
 
 links = dict()
 link_types = dict()
@@ -188,14 +189,24 @@ with open("repo/area.csv", "w") as out:
 out_artist = open("repo/artist.csv", "w")
 out_artist_area = open("repo/artist_area.csv", "w")
 
-out_artist.write("id:ID(Artist),name,year:int,:LABEL\n")
+out_artist.write("id:ID(Artist),name,sortname,year:int,comment,:LABEL\n")
 out_artist_area.write(":START_ID(Artist),:END_ID(Area)\n")
 
+ASCII_RE = re.compile(r"[^a-zA-Z0-9.\-!?& ]")
+ALPHANUM_RE = re.compile(r"[^\w.\-!?& ]")
+
 for _, artist in artists.items():
+
+    sortname = ASCII_RE.sub("_", artist[2]).upper()
+    if sortname.replace("_", "").strip() == "":
+        sortname = ALPHANUM_RE.sub("_", artist[3]).upper()
+
     out_artist.write(",".join((
         artist[1],
         '"' + artist[2].replace("\"", "\"\"") + '"',
+        sortname,
         artist[4] if artist[4] != "\\N" else "0",
+        ('"' + artist[13].replace("\"", "\"\"") + '"') if artist[13] != "\\N" else "",
         "Artist" + (";Group\n" if artist[10] == "2" else "\n")
     )))
 

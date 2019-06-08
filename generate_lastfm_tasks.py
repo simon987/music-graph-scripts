@@ -2,7 +2,7 @@ import csv
 import json
 from multiprocessing.pool import ThreadPool
 
-from task_tracker_drone.src.tt_drone.api import TaskTrackerApi, Worker
+from task_tracker_drone.src.tt_drone.api import TaskTrackerApi, Worker, LOG_TRACE
 
 TT_API_URL = "https://tt.simon987.net/api"
 TT_PROJECT = 1

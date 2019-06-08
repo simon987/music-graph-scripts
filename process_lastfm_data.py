@@ -69,7 +69,7 @@ def patch(lastfm_data):
     with open("repo/lastfm_artist.csv", "w") as out:
         writer = csv.writer(out)
         writer.writerow([
-            "id:ID(Artist)", "name", "year:short", ":LABEL", "listeners:int", "playcount:int"
+            "id:ID(Artist)", "name", "sortname", "year:short", "comment",  ":LABEL", "listeners:int", "playcount:int"
         ])
 
         with open("repo/artist.csv") as f:
@@ -82,6 +82,8 @@ def patch(lastfm_data):
                     row[1],
                     row[2],
                     row[3],
+                    row[4],
+                    row[5],
                     artist_listeners.get(row[0], (0, 0))[0],
                     artist_listeners.get(row[0], (0, 0))[1],
                 ])
