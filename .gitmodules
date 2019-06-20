@@ -7,3 +7,9 @@
 [submodule "caa"]
 	path = caa
 	url = https://git.simon987.net/drone/caa.git
+[submodule "spotify"]
+	path = spotify
+	url = https://git.simon987.net/drone/spotify
+[submodule "spotify2"]
+	path = spotify2
+	url = https://git.simon987.net/drone/spotify2

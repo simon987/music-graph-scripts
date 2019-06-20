@@ -23,6 +23,7 @@ wget ${REPOSITORY}/release.csv
 wget ${REPOSITORY}/tag.csv
 wget ${REPOSITORY}/tag_tag.csv
 wget ${REPOSITORY}/release_tag.csv
+wget ${REPOSITORY}/release_label.csv
 wget ${REPOSITORY}/release_release.csv
 wget ${REPOSITORY}/artist_tag.csv
 wget ${REPOSITORY}/labels.csv
@@ -46,7 +47,8 @@ wget ${REPOSITORY}/lastfm_artist_artist.csv
     --relationships:IS_RELATED_TO "tag_tag.csv"\
     --relationships "label_label.csv"\
     --relationships "release_release.csv"\
-    --relationships:IS_RELATED_TO "lastfm_artist_artist.csv"
+    --relationships:IS_RELATED_TO "lastfm_artist_artist.csv"\
+    --relationships:RELEASE_UNDER "release_label.csv"
 
 rm *.csv
 cd ..

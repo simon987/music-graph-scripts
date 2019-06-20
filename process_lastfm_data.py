@@ -15,10 +15,10 @@ def disambiguate(lfm_artist, artist_release_count, name, mbid):
 
             lfm_artist[name] = mbid
 
-            print("Replacing %s (%s) with %s (%d) for %s" %
-                  (existing_mbid, artist_release_count[existing_mbid],
-                   mbid, artist_release_count[mbid],
-                   name))
+            # print("Replacing %s (%s) with %s (%d) for %s" %
+            #       (existing_mbid, artist_release_count[existing_mbid],
+            #        mbid, artist_release_count[mbid],
+            #        name))
     else:
         lfm_artist[name] = mbid
 

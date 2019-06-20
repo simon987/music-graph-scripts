@@ -1,6 +1,7 @@
 import os
 from collections import defaultdict
 import re
+from statistics import median
 
 links = dict()
 link_types = dict()
@@ -314,14 +315,21 @@ with open("repo/release_release.csv", "w") as out:
 
 # ---
 
+tag_occurence = defaultdict(int)
+with open("in/release_group_tag") as f:
+    for line in f:
+        tag_occurence[line.split("\t")[1]] += 1
+
 with open("in/tag") as f:
     with open("repo/tag.csv", "w") as out:
-        out.write("id:ID(Tag),name\n")
+        out.write("id:ID(Tag),name, occurences\n")
 
         for line in f:
             cols = line.split("\t")
+            if tag_occurence[cols[0]] < 5:
+                continue
             tags[cols[0]] = cols
-            out.write(cols[0] + ",\"" + cols[1].replace("\"", "\"\"") + "\"\n")
+            out.write(cols[0] + ",\"" + cols[1].replace("\"", "\"\"") + "\"," + str(tag_occurence[cols[0]]) + "\n")
 
 with open("repo/release_tag.csv", "w") as out:
     out.write(":START_ID(Release),:END_ID(Tag),weight:float\n")
@@ -341,11 +349,15 @@ with open("repo/release_tag.csv", "w") as out:
             count = int(cols[2])
             if count <= 0:
                 continue
+            if cols[1] not in tags:
+                continue
             out.write(",".join((
                 release_groups[cols[0]][1],
                 cols[1],
                 str(max(min(count / max_count, 1), 0.2)),
             )) + "\n")
+            tag_occurence[cols[1]] += 1
+
 
 with open("repo/artist_tag.csv", "w") as out:
     out.write(":START_ID(Artist),:END_ID(Tag),weight:float\n")
@@ -366,6 +378,8 @@ with open("repo/artist_tag.csv", "w") as out:
             count = int(cols[2])
             if count <= 0:
                 continue
+            if cols[1] not in tags:
+                continue
 
             out.write(",".join((
                 artists[cols[0]][1],
@@ -374,38 +388,67 @@ with open("repo/artist_tag.csv", "w") as out:
             )) + "\n")
 
 with open("repo/tag_tag.csv", "w") as out:
-    out.write(":START_ID(Tag),:END_ID(Tag),weight:int\n")
+    out.write(":START_ID(Tag),:END_ID(Tag),weight:float\n")
 
-    # TODO: normalize weight so it's between [0,1]
+    def weights():
+        with open("in/tag_relation") as f:
+            for line in f:
+                weight = int(line.split("\t")[2])
+                if weight < 5:
+                    continue
+                yield weight
+    weight_median = median(weights()) * 3
+
     with open("in/tag_relation") as f:
         for line in f:
             cols = line.split("\t")
 
-            if int(cols[2]) <= 0:
+            weight = int(cols[2])
+            if weight < 5:
+                continue
+            if cols[0] not in tags or cols[1] not in tags:
                 continue
 
             out.write(",".join((
                 cols[0],
                 cols[1],
-                cols[2],
+                str(max(min(weight / weight_median, 1), 0.2)),
             )) + "\n")
 
 # -----
 
 with open("repo/labels.csv", "w") as out:
-    out.write("id:ID(Label),name,code,:LABEL\n")
+    out.write("id:ID(Label),name,sortname,code,:LABEL\n")
 
     with open("in/label") as f:
         for line in f:
             cols = line.split("\t")
             labels[cols[0]] = cols
 
+            sortname = ASCII_RE.sub("_", cols[2]).upper()
             out.write(",".join((
                 cols[1],
                 "\"" + cols[2].replace("\"", "\"\"") + "\"",
+                sortname,
                 cols[9] if cols[9] != "\\N" else "",
                 "Label" + label_types[cols[10]]
             )) + "\n")
+
+with open("repo/release_label.csv", "w") as out:
+    out.write(":START_ID(Release),:END_ID(Label)\n")
+
+    # Should I check link types here?
+    with open("in/l_label_release_group") as f:
+        for line in f:
+            cols = line.split("\t")
+            out.write(release_groups[cols[3]][1] + "," + labels[cols[2]][1] + "\n")
+
+    with open("in/l_label_release") as f:
+        for line in f:
+            cols = line.split("\t")
+            if cols[3] in release_to_release_group_map:
+                out.write(release_groups[release_to_release_group_map[cols[3]]][1] + "," + labels[cols[2]][1] + "\n")
+
 
 with open("repo/label_label.csv", "w") as out:
     out.write(":START_ID(Label),:END_ID(Label),:TYPE\n")
