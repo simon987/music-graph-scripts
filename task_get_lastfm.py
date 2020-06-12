@@ -31,7 +31,7 @@ def save_tags(lfm_name, tags):
     cur.execute("DELETE FROM mg.lastfm_artist_tag WHERE name=%s", (lfm_name,))
     cur.execute(
         "INSERT INTO mg.lastfm_artist_tag VALUES %s" %
-        ",".join("('%s', '%s')" % (n, t) for (n, t) in zip(repeat(lfm_name), tags))
+        ",".join("('%s', '%s')" % (n, t.strip()) for (n, t) in zip(repeat(lfm_name), tags))
     )
 
 

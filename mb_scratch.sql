@@ -125,25 +125,48 @@ VALUES ('label rename', 'WAS_RENAMED_TO'),
        ('label reissue', 'DOES_REISSUING_FOR');
 
 
+DROP VIEW mg.artist;
 CREATE OR REPLACE VIEW mg.artist AS
 SELECT gid                                                 as "id:ID(Artist)",
-       name,
-       fn_sortname(name, sort_name)                        as sortname,
+       artist.name,
+       fn_sortname(artist.name, sort_name)                 as sortname,
        COALESCE(begin_date_year, 0)                        as "year:int",
        comment,
+       COALESCE(lfm.listeners, 0)                          as "listeners",
+       COALESCE(lfm.playcount, 0)                          as "playcount",
        (CASE WHEN type = 2 THEN 'Group' ELSE 'Artist' END) as ":LABEL"
-FROM artist;
+FROM artist
+         LEFT JOIN mg.lastfm_artist lfa ON lfa.mbid = artist.gid
+         LEFT JOIN mg.lastfm_artist_meta lfm ON lfa.name = lfm.name;
 
 CREATE OR REPLACE VIEW mg.artist_artist AS
 SELECT a0.gid    as ":START_ID(Artist)",
        a1.gid    as ":END_ID(Artist)",
+       0         as "weight:float",
        t.mg_name as ":TYPE"
 FROM l_artist_artist
          INNER JOIN artist a0 ON entity0 = a0.id
          INNER JOIN artist a1 ON entity1 = a1.id
          INNER JOIN link l on l.id = l_artist_artist.link
          INNER JOIN link_type lt ON lt.id = l.link_type
-         INNER JOIN mg.translate_artist_artist_rel t ON t.mb_name = lt.name;
+         INNER JOIN mg.translate_artist_artist_rel t ON t.mb_name = lt.name
+UNION ALL
+SELECT lfa0.mbid,
+       lfa1.mbid,
+       weight,
+       'IS_RELATED_TO'
+FROM mg.lastfm_artist_artist
+         INNER JOIN mg.lastfm_artist lfa0 ON lfa0.name = mg.lastfm_artist_artist.name0
+         INNER JOIN mg.lastfm_artist lfa1 ON lfa1.name = mg.lastfm_artist_artist.name1
+UNION ALL
+SELECT s0.mbid,
+       s1.mbid,
+        index::float,
+       'IS_RELATED_TO'
+FROM mg.spotify_artist_artist
+         INNER JOIN mg.spotify_artist s0 ON s0.spotid = mg.spotify_artist_artist.spotid0
+         INNER JOIN mg.spotify_artist s1 ON s1.spotid = mg.spotify_artist_artist.spotid1;
+
 
 
 CREATE OR REPLACE VIEW mg.release AS
@@ -189,21 +212,27 @@ CREATE OR REPLACE VIEW mg.tag AS
 WITH occurences AS (
     SELECT tag, COUNT(*) as count
     FROM (
-             SELECT tag
+             SELECT name as tag
              FROM release_group_tag
+                      INNER JOIN tag t ON t.id = tag
+             UNION ALL
+             SELECT name
+             FROM release_tag
+                      INNER JOIN tag t ON t.id = tag
+             UNION ALL
+             SELECT lower(name)
+             FROM mg.lastfm_artist_tag
              UNION ALL
              SELECT tag
-             FROM release_tag
+             FROM mg.spotify_artist_tag
          ) as tags
     GROUP BY tag
 )
-SELECT tag.id           as "id:ID(Tag)",
-       tag.name,
-       occurences.count as "occurences:int"
-FROM tag
-         INNER JOIN occurences ON occurences.tag = tag.id
-WHERE ref_count > 0
-  AND occurences.count > 5;
+SELECT row_number() over (ORDER BY tag) as "id:ID(Tag)",
+       tag,
+       count                            as "occurences:int"
+FROM occurences
+WHERE count > 5;
 
 
 CREATE OR REPLACE VIEW mg.release_tag AS
@@ -230,7 +259,7 @@ SELECT a.gid                                                as ":START_ID(Artist
        greatest(least(artist_tag.count::float / 8, 1), 0.2) as "weight:float"
 FROM artist_tag
          INNER JOIN artist a on artist_tag.artist = a.id
-         INNER JOIN mg.tag t ON t."id:ID(Tag)" = artist_tag.tag
+         INNER JOIN mg.tag t ON t."id:ID(Tag)" = artist_tag.tag;
 
 CREATE OR REPLACE VIEW mg.tag_tag AS
 SELECT tag_relation.tag1                                        as ":START_ID(Tag)",
@@ -271,8 +300,7 @@ FROM l_label_label
          INNER JOIN label l1 on l_label_label.entity1 = l1.id
          INNER JOIN link l on l.id = l_label_label.link
          INNER JOIN link_type lt ON lt.id = l.link_type
-         INNER JOIN mg.translate_label_label_rel t ON t.mb_name = lt.name
-
+         INNER JOIN mg.translate_label_label_rel t ON t.mb_name = lt.name;
 
 --------------
 
@@ -383,9 +411,11 @@ CREATE TABLE mg.spotify_raw_data
 CREATE OR REPLACE FUNCTION asciifold(text) RETURNS text
 AS
 '/pglib/libasciifolding.so',
-'asciifold' LANGUAGE C STRICT;
+'asciifold' LANGUAGE C STRICT
+                       PARALLEL SAFE;
 
 CREATE OR REPLACE FUNCTION asciifold_lower(text) RETURNS text
 AS
 '/pglib/libasciifolding.so',
-'asciifold_lower' LANGUAGE C STRICT;
+'asciifold_lower' LANGUAGE C STRICT
+                             PARALLEL SAFE;
