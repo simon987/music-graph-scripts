@@ -4,10 +4,10 @@ declare
     sn text;
 BEGIN
 
-    sn = regexp_replace(name, '[^a-zA-Z0-9.\-!?&çéàâäëïöü'' ]', '_');
+    sn = regexp_replace(name, '[^a-zA-Z0-9.\-!?&çéàâäëïöü'' ]', '_', 'g');
 
     if length(replace(sn, '_', '')) = 0 then
-        return upper(regexp_replace(mb_sortname, '[^\w.\-!?& ]', '_'));
+        return upper(regexp_replace(mb_sortname, '[^\w.\-!?& ]', '_', 'g'));
     end if;
 
     return upper(sn);

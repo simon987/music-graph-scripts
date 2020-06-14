@@ -20,10 +20,32 @@ def get_mbid(conn, lfm_name):
     return row[0] if row else None
 
 
+def get_names(conn, mbid):
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT lfa.name, listeners "
+        "FROM mg.lastfm_artist lfa "
+        "INNER JOIN mg.lastfm_artist_meta lfm ON lfm.name=lfa.name "
+        "WHERE mbid=%s", (mbid,)
+    )
+
+    return cur.fetchall()
+
+
 def set_mbid(conn, lfm_name, mbid):
     cur = conn.cursor()
     cur.execute("INSERT INTO mg.lastfm_artist VALUES (%s,%s) ON CONFLICT (name) "
                 "DO UPDATE SET mbid=excluded.mbid", (lfm_name, mbid))
+
+
+def delete_mbid(conn, mbid):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mg.lastfm_artist WHERE mbid=%s", (mbid,))
+
+
+def delete_name(conn, name):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM mg.lastfm_artist WHERE name=%s", (name,))
 
 
 def save_tags(conn, lfm_name, tags):
@@ -34,16 +56,17 @@ def save_tags(conn, lfm_name, tags):
     cur.execute("DELETE FROM mg.lastfm_artist_tag WHERE name=%s", (lfm_name,))
     cur.execute(
         "INSERT INTO mg.lastfm_artist_tag VALUES %s" %
-        ",".join("('%s', '%s')" % (n.replace("'", "''"), t.strip().replace("'", "''")) for (n, t) in zip(repeat(lfm_name), tags))
+        ",".join("('%s', '%s')" % (n.replace("'", "''"), t.strip().replace("'", "''")) for (n, t) in
+                 zip(repeat(lfm_name), tags))
     )
 
 
 def save_data(conn, data):
     if data:
-        disambiguate(conn, data["name"], mbid=data["artist"])
+        disambiguate(conn, data["name"], mbid=data["artist"], listeners=data["listeners"])
 
         for similar in [s for s in data["similar"] if s["mbid"] is not None]:
-            disambiguate(conn, similar["name"], similar["mbid"])
+            disambiguate(conn, similar["name"], similar["mbid"], listeners=data["listeners"])
             save_similar(conn, data["name"], similar["name"], similar["match"])
 
         save_tags(conn, data["name"], set(data["tags"]))
@@ -84,16 +107,26 @@ def get_release_count(conn, mbid):
     return row[0] if row else 0
 
 
-def disambiguate(conn, name, mbid):
+def disambiguate(conn, name, mbid, listeners):
     """
     A lastfm artist name can refer to multiple MBIDs
     For RELATED_TO purposes, we assume that the MBID referring
-    to the artist with the most official releases is the one
+    to the artist with the most official releases is the one.
+    When multiple last.fm artists refer to the same MBID, we
+    assume that the one with the most listeners is the real one
     """
     existing_mbid = get_mbid(conn, name)
 
+    for existing_name, existing_listeners in get_names(conn, mbid):
+        if existing_listeners > listeners:
+            return
+        delete_name(conn, existing_name)
+        set_mbid(conn, name, mbid)
+        return
+
     if existing_mbid and mbid != existing_mbid:
         if get_release_count(conn, existing_mbid) < get_release_count(conn, mbid):
+            delete_mbid(conn, existing_mbid)
             set_mbid(conn, name, mbid)
     else:
         set_mbid(conn, name, mbid)
