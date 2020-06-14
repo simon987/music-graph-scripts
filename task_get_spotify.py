@@ -51,7 +51,8 @@ def save_artist(conn, data, max_age_days=30):
 
 
 def get_albums(conn, spotify, spotid):
-    data = silent_stdout(spotify.artist_albums, spotid, album_type="album,single,compilation")
+    with silent_stdout:
+        data = spotify.artist_albums(spotid, album_type="album,single,compilation")
     save_raw(conn, spotid, "artist_albums", data)
 
     cur = conn.cursor()
@@ -66,7 +67,8 @@ def get_albums(conn, spotify, spotid):
 
 
 def get_tracks(conn, spotify, spotid):
-    data = silent_stdout(spotify.artist_top_tracks, spotid)
+    with silent_stdout:
+        data = spotify.artist_top_tracks(spotid)
     save_raw(conn, spotid, "artist_top_tracks", data)
 
     cur = conn.cursor()
@@ -89,7 +91,8 @@ def get_tracks(conn, spotify, spotid):
 
 
 def related(conn, spotify, spotid):
-    data = silent_stdout(spotify.artist_related_artists, spotid)
+    with silent_stdout:
+        data = spotify.artist_related_artists(spotid)
     save_raw(conn, spotid, "artist_related_artists", data)
     return data["artists"]
 
@@ -210,7 +213,8 @@ def save_spotid_to_mbid(conn, spotid, mbid):
 def search_artist(conn, spotify, name):
     quoted_name = "\"%s\"" % name
 
-    data = silent_stdout(spotify.search, quoted_name, type="artist", limit=20)
+    with silent_stdout:
+        data = spotify.search(quoted_name, type="artist", limit=20)
     save_raw(conn, name, "search", data)
 
     for result in data["artists"]["items"]:
@@ -271,7 +275,7 @@ if __name__ == "__main__":
     queue = Queue()
 
     conn = psycopg2.connect(config.connstr())
-    for task in get_tasks(conn,  args.count):
+    for task in get_tasks(conn, args.count):
         queue.put(task)
     conn.close()
 
