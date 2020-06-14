@@ -1,3 +1,5 @@
 requests
 psycopg2
 spotipy
+Pillow
+git+git://github.com/simon987/hexlib.git

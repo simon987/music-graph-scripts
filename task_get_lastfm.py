@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 
 import json
+import traceback
 from itertools import repeat
-
-import config
+from queue import Queue
 
 import psycopg2
 import requests
+from hexlib.concurrency import queue_iter, queue_thread_exec
+
+import config
 
 
-def get_mbid(lfm_name):
+def get_mbid(conn, lfm_name):
     cur = conn.cursor()
     cur.execute("SELECT mbid "
                 "FROM mg.lastfm_artist WHERE name=%s", (lfm_name,))
@@ -17,13 +20,13 @@ def get_mbid(lfm_name):
     return row[0] if row else None
 
 
-def set_mbid(lfm_name, mbid):
+def set_mbid(conn, lfm_name, mbid):
     cur = conn.cursor()
     cur.execute("INSERT INTO mg.lastfm_artist VALUES (%s,%s) ON CONFLICT (name) "
                 "DO UPDATE SET mbid=excluded.mbid", (lfm_name, mbid))
 
 
-def save_tags(lfm_name, tags):
+def save_tags(conn, lfm_name, tags):
     if not tags:
         return
     cur = conn.cursor()
@@ -31,23 +34,23 @@ def save_tags(lfm_name, tags):
     cur.execute("DELETE FROM mg.lastfm_artist_tag WHERE name=%s", (lfm_name,))
     cur.execute(
         "INSERT INTO mg.lastfm_artist_tag VALUES %s" %
-        ",".join("('%s', '%s')" % (n, t.strip()) for (n, t) in zip(repeat(lfm_name), tags))
+        ",".join("('%s', '%s')" % (n, t.strip().replace("'", "''")) for (n, t) in zip(repeat(lfm_name), tags))
     )
 
 
-def save_data(data):
+def save_data(conn, data):
     if data:
-        disambiguate(data["name"], mbid=data["artist"])
+        disambiguate(conn, data["name"], mbid=data["artist"])
 
         for similar in [s for s in data["similar"] if s["mbid"] is not None]:
-            disambiguate(similar["name"], similar["mbid"])
-            save_similar(data["name"], similar["name"], similar["match"])
+            disambiguate(conn, similar["name"], similar["mbid"])
+            save_similar(conn, data["name"], similar["name"], similar["match"])
 
-        save_tags(data["name"], data["tags"])
-        save_meta(data["name"], data["listeners"], data["playcount"])
+        save_tags(conn, data["name"], data["tags"])
+        save_meta(conn, data["name"], data["listeners"], data["playcount"])
 
 
-def save_similar(lfm_name, similar, weight):
+def save_similar(conn, lfm_name, similar, weight):
     cur = conn.cursor()
 
     cur.execute(
@@ -57,21 +60,21 @@ def save_similar(lfm_name, similar, weight):
     )
 
 
-def save_meta(lfm_name, listeners, playcount):
+def save_meta(conn, lfm_name, listeners, playcount):
     cur = conn.cursor()
     cur.execute("INSERT INTO mg.lastfm_artist_meta VALUES (%s,%s,%s) ON CONFLICT (name) "
                 "DO UPDATE SET listeners=excluded.listeners, playcount=excluded.playcount",
                 (lfm_name, listeners, playcount))
 
 
-def save_raw_data(name, mbid, data):
+def save_raw_data(conn, name, mbid, data):
     cur = conn.cursor()
     cur.execute("INSERT INTO mg.lastfm_raw_data (name, mbid, data) VALUES (%s,%s,%s) "
                 "ON CONFLICT (name, mbid) DO UPDATE SET ts=CURRENT_TIMESTAMP, data=excluded.data",
                 (name, mbid, json.dumps(data)))
 
 
-def get_release_count(mbid):
+def get_release_count(conn, mbid):
     cur = conn.cursor()
     cur.execute('SELECT COUNT(*) '
                 'FROM l_artist_release '
@@ -81,22 +84,22 @@ def get_release_count(mbid):
     return row[0] if row else 0
 
 
-def disambiguate(name, mbid):
+def disambiguate(conn, name, mbid):
     """
     A lastfm artist name can refer to multiple MBIDs
     For RELATED_TO purposes, we assume that the MBID referring
     to the artist with the most official releases is the one
     """
-    existing_mbid = get_mbid(name)
+    existing_mbid = get_mbid(conn, name)
 
     if existing_mbid and mbid != existing_mbid:
-        if get_release_count(existing_mbid) < get_release_count(mbid):
-            set_mbid(name, mbid)
+        if get_release_count(conn, existing_mbid) < get_release_count(conn, mbid):
+            set_mbid(conn, name, mbid)
     else:
-        set_mbid(name, mbid)
+        set_mbid(conn, name, mbid)
 
 
-def get_cached_artist_data(name, mbid, max_age_days):
+def get_cached_artist_data(conn, name, mbid, max_age_days):
     cur = conn.cursor()
     cur.execute("SELECT data FROM mg.lastfm_raw_data WHERE name=%s AND mbid=%s "
                 "AND date_part('day', CURRENT_TIMESTAMP - ts) <= %s ",
@@ -106,8 +109,8 @@ def get_cached_artist_data(name, mbid, max_age_days):
     return row[0] if row else 0
 
 
-def get_artist_data(name: str, mbid: str):
-    cached_data = get_cached_artist_data(name, mbid, max_age_days=30)
+def get_artist_data(conn, name: str, mbid: str):
+    cached_data = get_cached_artist_data(conn, name, mbid, max_age_days=30)
     if cached_data:
         return cached_data
 
@@ -132,7 +135,7 @@ def get_artist_data(name: str, mbid: str):
             data = {
                 "_raw": raw
             }
-            save_raw_data(name, mbid, data)
+            save_raw_data(conn, name, mbid, data)
             return
         by_name = True
 
@@ -164,12 +167,12 @@ def get_artist_data(name: str, mbid: str):
         "_raw": raw
     }
 
-    save_raw_data(name, mbid, data)
+    save_raw_data(conn, name, mbid, data)
 
     return data
 
 
-def get_task(count=1):
+def get_task(conn, count=1):
     cur = conn.cursor()
     cur.execute(
         "SELECT artist.name, artist.gid FROM artist "
@@ -177,7 +180,21 @@ def get_task(count=1):
         "ORDER BY lfm.ts NULLS FIRST LIMIT %s",
         (count,)
     )
-    return cur.fetchone()
+    return cur.fetchall()
+
+
+def worker(q):
+    conn = psycopg2.connect(config.connstr())
+
+    for task in queue_iter(q, block=False):
+        try:
+            save_data(conn, get_artist_data(conn, *task))
+            conn.commit()
+            print(task[0])
+        except Exception as e:
+            print("Error %s : %s" % (e, traceback.format_exc()))
+
+    conn.close()
 
 
 if __name__ == "__main__":
@@ -185,13 +202,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=4)
     args = parser.parse_args()
 
+    queue = Queue()
+
     conn = psycopg2.connect(config.connstr())
-
-    for task in get_task(args.count):
-        save_data(get_artist_data(*task))
-        conn.commit()
-        print(task[0])
-
+    for task in get_task(conn, args.count):
+        queue.put(task)
     conn.close()
+
+    queue_thread_exec(queue, func=worker, thread_count=args.threads)

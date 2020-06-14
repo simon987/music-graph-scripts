@@ -1,16 +1,19 @@
 #!/usr/bin/env python
 import json
+import traceback
 from itertools import repeat
+from queue import Queue
 
 import psycopg2
 import spotipy
+from hexlib.concurrency import queue_thread_exec, queue_iter
 from hexlib.misc import silent_stdout
 from spotipy.oauth2 import SpotifyClientCredentials
 
 import config
 
 
-def save_raw(query, endpoint, data):
+def save_raw(conn, query, endpoint, data):
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO mg.spotify_raw_data (query, endpoint, data) VALUES (%s,%s,%s) "
@@ -20,7 +23,7 @@ def save_raw(query, endpoint, data):
     )
 
 
-def save_artist(data, max_age_days=30):
+def save_artist(conn, data, max_age_days=30):
     """Returns True if artist is new (and therefore, its albums, tracks etc. should be fetched)"""
 
     cur = conn.cursor()
@@ -47,9 +50,9 @@ def save_artist(data, max_age_days=30):
     return True
 
 
-def get_albums(spotid):
+def get_albums(conn, spotify, spotid):
     data = silent_stdout(spotify.artist_albums, spotid, album_type="album,single,compilation")
-    save_raw(spotid, "artist_albums", data)
+    save_raw(conn, spotid, "artist_albums", data)
 
     cur = conn.cursor()
     cur.execute("DELETE FROM mg.spotify_artist_album WHERE spotid=%s", (spotid,))
@@ -62,9 +65,9 @@ def get_albums(spotid):
     return list()
 
 
-def get_tracks(spotid):
+def get_tracks(conn, spotify, spotid):
     data = silent_stdout(spotify.artist_top_tracks, spotid)
-    save_raw(spotid, "artist_top_tracks", data)
+    save_raw(conn, spotid, "artist_top_tracks", data)
 
     cur = conn.cursor()
     cur.execute("DELETE FROM mg.spotify_artist_track WHERE spotid=%s", (spotid,))
@@ -85,13 +88,13 @@ def get_tracks(spotid):
         )
 
 
-def related(spotid):
+def related(conn, spotify, spotid):
     data = silent_stdout(spotify.artist_related_artists, spotid)
-    save_raw(spotid, "artist_related_artists", data)
+    save_raw(conn, spotid, "artist_related_artists", data)
     return data["artists"]
 
 
-def save_artist_artist(id0, relations):
+def save_artist_artist(conn, id0, relations):
     if relations:
         cur = conn.cursor()
         cur.execute(
@@ -103,7 +106,7 @@ def save_artist_artist(id0, relations):
         )
 
 
-def get_mbids_with_matching_name(name):
+def get_mbids_with_matching_name(conn, name):
     cur = conn.cursor()
     cur.execute(
         "SELECT gid FROM artist "
@@ -115,7 +118,7 @@ def get_mbids_with_matching_name(name):
     return [r[0] for r in rows]
 
 
-def resolve_spotify_conflict(mbid, existing_spotid, new_spotid):
+def resolve_spotify_conflict(conn, mbid, existing_spotid, new_spotid):
     cur = conn.cursor()
     cur.execute(
         "SELECT asciifold_lower(album) FROM mg.spotify_artist_album WHERE spotid=%s",
@@ -144,7 +147,7 @@ def resolve_spotify_conflict(mbid, existing_spotid, new_spotid):
             cur.execute("UPDATE mg.spotify_artist SET spotid = %s WHERE mbid=%s", (new_spotid, mbid))
 
 
-def resolve_mb_conflict(spotid, mbids):
+def resolve_mb_conflict(conn, spotid, mbids):
     cur = conn.cursor()
 
     cur.execute(
@@ -185,10 +188,10 @@ def resolve_mb_conflict(spotid, mbids):
                 best_match_count = match_count
                 best_match = mbid
 
-    save_spotid_to_mbid(spotid, best_match)
+    save_spotid_to_mbid(conn, spotid, best_match)
 
 
-def save_spotid_to_mbid(spotid, mbid):
+def save_spotid_to_mbid(conn, spotid, mbid):
     cur = conn.cursor()
     cur.execute(
         "SELECT spotid FROM mg.spotify_artist WHERE mbid=%s",
@@ -196,7 +199,7 @@ def save_spotid_to_mbid(spotid, mbid):
     )
     row = cur.fetchone()
     if row:
-        resolve_spotify_conflict(mbid, row[0], spotid)
+        resolve_spotify_conflict(conn, mbid, row[0], spotid)
     else:
         cur.execute(
             "INSERT INTO mg.spotify_artist (spotid, mbid) VALUES (%s,%s)",
@@ -204,28 +207,28 @@ def save_spotid_to_mbid(spotid, mbid):
         )
 
 
-def search_artist(name):
+def search_artist(conn, spotify, name):
     quoted_name = "\"%s\"" % name
 
     data = silent_stdout(spotify.search, quoted_name, type="artist", limit=20)
-    save_raw(name, "search", data)
+    save_raw(conn, name, "search", data)
 
     for result in data["artists"]["items"]:
-        if save_artist(result):
-            mbids = get_mbids_with_matching_name(result["name"])
+        if save_artist(conn, result):
+            mbids = get_mbids_with_matching_name(conn, result["name"])
 
-            get_albums(result["id"])
-            get_tracks(result["id"])
+            get_albums(conn, spotify, result["id"])
+            get_tracks(conn, spotify, result["id"])
 
             if len(mbids) > 1:
-                resolve_mb_conflict(result["id"], mbids)
+                resolve_mb_conflict(conn, result["id"], mbids)
             elif len(mbids) == 1:
-                save_spotid_to_mbid(result["id"], mbids[0])
+                save_spotid_to_mbid(conn, result["id"], mbids[0])
 
-            save_artist_artist(result["id"], related(result["id"]))
+            save_artist_artist(conn, result["id"], related(conn, spotify, result["id"]))
 
 
-def get_tasks(count=1):
+def get_tasks(conn, count=1):
     cur = conn.cursor()
     cur.execute(
         "SELECT artist.name FROM artist "
@@ -239,23 +242,37 @@ def get_tasks(count=1):
         yield row[0]
 
 
+def worker(q):
+    conn = psycopg2.connect(config.connstr())
+    spotify = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+
+    for task in queue_iter(q, block=False):
+        try:
+            search_artist(conn, spotify, task)
+            conn.commit()
+            # print(task)
+        except Exception as e:
+            print("Error %s : %s" % (e, traceback.format_exc()))
+    conn.close()
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=10)
     args = parser.parse_args()
 
-    conn = psycopg2.connect(config.connstr())
     client_credentials_manager = SpotifyClientCredentials(
         client_id=config.config["SPOTIFY_CLIENTID"],
         client_secret=config.config["SPOTIFY_SECRET"]
     )
-    spotify = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
+    queue = Queue()
 
-    for name in get_tasks(args.count):
-        search_artist(name)
-        conn.commit()
-        print(name)
-
+    conn = psycopg2.connect(config.connstr())
+    for task in get_tasks(conn,  args.count):
+        queue.put(task)
     conn.close()
+
+    queue_thread_exec(queue, func=worker, thread_count=args.threads)

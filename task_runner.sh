@@ -16,5 +16,5 @@ if [[ -z "${SPOTIFY_SECRET}" ]]; then
 fi
 
 while true; do
-  /usr/bin/time python3 "$1" --count 50 &>> "$1".log
+  /usr/bin/time python3 "$@" &>> "$1".log
 done

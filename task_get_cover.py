@@ -1,4 +1,5 @@
 from io import BytesIO
+from multiprocessing.pool import ThreadPool
 
 import psycopg2
 import requests
@@ -72,14 +73,19 @@ def download(mbid):
     return None
 
 
+def work(mbid):
+    tn = download(mbid)
+    save(mbid, tn)
+    print(mbid)
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--threads", type=int, default=3)
     args = parser.parse_args()
 
-    for mbid in get_mbids(args.count):
-        tn = download(mbid)
-        save(mbid, tn)
-        print(mbid)
+    pool = ThreadPool(processes=args.threads)
+    pool.map(func=work, iterable=get_mbids(args.count))
