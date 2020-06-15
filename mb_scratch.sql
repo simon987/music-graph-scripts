@@ -314,7 +314,7 @@ CREATE TABLE mg.covers
 CREATE TABLE mg.lastfm_artist
 (
     name TEXT PRIMARY KEY,
-    mbid uuid
+    mbid uuid UNIQUE
 );
 
 CREATE TABLE mg.lastfm_raw_data

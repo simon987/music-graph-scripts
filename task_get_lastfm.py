@@ -23,9 +23,9 @@ def get_mbid(conn, lfm_name):
 def get_names(conn, mbid):
     cur = conn.cursor()
     cur.execute(
-        "SELECT lfa.name, listeners "
+        "SELECT lfa.name, coalesce(listeners, 0) "
         "FROM mg.lastfm_artist lfa "
-        "INNER JOIN mg.lastfm_artist_meta lfm ON lfm.name=lfa.name "
+        "LEFT JOIN mg.lastfm_artist_meta lfm ON lfm.name=lfa.name "
         "WHERE mbid=%s", (mbid,)
     )
 
@@ -143,9 +143,9 @@ def get_cached_artist_data(conn, name, mbid, max_age_days):
 
 
 def get_artist_data(conn, name: str, mbid: str):
-    cached_data = get_cached_artist_data(conn, name, mbid, max_age_days=30)
-    if cached_data:
-        return cached_data
+    # cached_data = get_cached_artist_data(conn, name, mbid, max_age_days=30)
+    # if cached_data:
+    #     return cached_data
 
     raw = []
     url = "https://ws.audioscrobbler.com/2.0/?method=artist.getinfo&mbid=%s&api_key=%s&format=json" % \
@@ -188,8 +188,8 @@ def get_artist_data(conn, name: str, mbid: str):
         "mbid": info_json["artist"]["mbid"] if "mbid" in info_json["artist"] else None,
         "tags": [t["name"] for t in info_json["artist"]["tags"]["tag"]] if "tags" in info_json["artist"] and "tag" in
                                                                            info_json["artist"]["tags"] else [],
-        "listeners": info_json["artist"]["stats"]["listeners"],
-        "playcount": info_json["artist"]["stats"]["playcount"],
+        "listeners": int(info_json["artist"]["stats"]["listeners"]),
+        "playcount": int(info_json["artist"]["stats"]["playcount"]),
         "similar": [
             {
                 "mbid": a["mbid"] if "mbid" in a else None,
@@ -240,9 +240,8 @@ if __name__ == "__main__":
 
     queue = Queue()
 
-    conn = psycopg2.connect(config.connstr())
-    for task in get_task(conn, args.count):
-        queue.put(task)
-    conn.close()
+    with psycopg2.connect(config.connstr()) as conn:
+        for task in get_task(conn, args.count):
+            queue.put(task)
 
     queue_thread_exec(queue, func=worker, thread_count=args.threads)
