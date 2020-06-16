@@ -86,7 +86,7 @@ VALUES ('translator', 'TRANSLATED'),
        ('illustration', 'DID_ILLUSTRATION_FOR'),
        ('audio', 'DID_AUDIO_FOR'),
        ('publishing', 'IS_PUBLISHER_FOR'),
-       ('art direction', 'DID_ART_DIRECTOR_FOR'),
+       ('art direction', 'DID_ART_DIRECTION_FOR'),
        ('design', 'DID_DESIGN_FOR'),
        ('instrument arranger', 'IS_ARRANGER_FOR'),
        ('chorus master', 'IS_CHORUS_MASTER_FOR'),
@@ -125,7 +125,6 @@ VALUES ('label rename', 'WAS_RENAMED_TO'),
        ('label reissue', 'DOES_REISSUING_FOR');
 
 
-DROP VIEW mg.artist;
 CREATE OR REPLACE VIEW mg.artist AS
 SELECT gid                                                 as "id:ID(Artist)",
        artist.name,
@@ -158,25 +157,29 @@ SELECT lfa0.mbid,
 FROM mg.lastfm_artist_artist
          INNER JOIN mg.lastfm_artist lfa0 ON lfa0.name = mg.lastfm_artist_artist.name0
          INNER JOIN mg.lastfm_artist lfa1 ON lfa1.name = mg.lastfm_artist_artist.name1
+WHERE lfa0.mbid IN (SELECT gid FROM artist)
+  AND lfa1.mbid IN (SELECT gid FROM artist)
 UNION ALL
 SELECT s0.mbid,
        s1.mbid,
-        index::float,
+       index::float,
        'IS_RELATED_TO'
 FROM mg.spotify_artist_artist
          INNER JOIN mg.spotify_artist s0 ON s0.spotid = mg.spotify_artist_artist.spotid0
-         INNER JOIN mg.spotify_artist s1 ON s1.spotid = mg.spotify_artist_artist.spotid1;
+         INNER JOIN mg.spotify_artist s1 ON s1.spotid = mg.spotify_artist_artist.spotid1
+WHERE s0.mbid IN (SELECT gid FROM artist)
+  AND s1.mbid IN (SELECT gid FROM artist);
 
 
 
 CREATE OR REPLACE VIEW mg.release AS
-SELECT release_group.gid          as ":id:ID(Release)",
+SELECT release_group.gid                      as ":id:ID(Release)",
        release_group.name,
-       m.first_release_date_year  as "year:int",
-       CONCAT('Release;', t.name) as ":LABEL"
+       coalesce(m.first_release_date_year, 0) as "year:int",
+       CONCAT('Release;', t.name)             as ":LABEL"
 FROM release_group
          INNER JOIN release_group_meta m ON m.id = release_group.id
-         INNER JOIN release_group_primary_type t ON t.id = release_group.type;
+         LEFT JOIN release_group_primary_type t ON t.id = release_group.type;
 
 CREATE OR REPLACE VIEW mg.artist_release AS
 SELECT a.gid     as ":START_ID(Artist)",
@@ -188,6 +191,7 @@ FROM l_artist_release_group
          INNER JOIN link l on l.id = l_artist_release_group.link
          INNER JOIN link_type lt ON lt.id = l.link_type
          INNER JOIN mg.translate_artist_release_rel t ON t.mb_name = lt.name
+WHERE t.mg_name IS NOT NULL
 UNION ALL
 SELECT a.gid     as ":START_ID(Artist)",
        rg.gid    as ":END_ID(Release)",
@@ -199,6 +203,7 @@ FROM l_artist_release
          INNER JOIN link l on l.id = l_artist_release.link
          INNER JOIN link_type lt ON lt.id = l.link_type
          INNER JOIN mg.translate_artist_release_rel t ON t.mb_name = lt.name
+WHERE t.mg_name IS NOT NULL
 UNION ALL
 SELECT a.gid          as ":START_ID(Artist)",
        rg.gid         as ":END_ID(Release)",
@@ -212,11 +217,11 @@ CREATE OR REPLACE VIEW mg.tag AS
 WITH occurences AS (
     SELECT tag, COUNT(*) as count
     FROM (
-             SELECT name as tag
+             SELECT lower(name) as tag
              FROM release_group_tag
                       INNER JOIN tag t ON t.id = tag
              UNION ALL
-             SELECT name
+             SELECT lower(name)
              FROM release_tag
                       INNER JOIN tag t ON t.id = tag
              UNION ALL
@@ -237,51 +242,79 @@ WHERE count > 5;
 
 CREATE OR REPLACE VIEW mg.release_tag AS
 SELECT rg.gid                                                      as ":START_ID(Release)",
-       release_group_tag.tag                                       as ":END_ID(Tag)",
+       t."id:ID(Tag)"                                              as ":END_ID(Tag)",
        greatest(least(release_group_tag.count::float / 6, 1), 0.2) as "weight:float"
 FROM release_group_tag
          INNER JOIN release_group rg ON rg.id = release_group_tag.release_group
-         INNER JOIN mg.tag t ON t."id:ID(Tag)" = release_group_tag.tag
+         INNER JOIN tag mbt ON mbt.id = release_group_tag.tag
+         INNER JOIN mg.tag t ON t.tag = mbt.name
 WHERE release_group_tag.count > 0
 UNION ALL
 SELECT rg.gid                                                as ":START_ID(Release)",
-       release_tag.tag                                       as ":END_ID(Tag)",
+       t."id:ID(Tag)"                                        as ":END_ID(Tag)",
        greatest(least(release_tag.count::float / 6, 1), 0.2) as "weight:float"
 FROM release_tag
          INNER JOIN release r ON r.id = release_tag.release
          INNER JOIN release_group rg ON rg.id = r.release_group
-         INNER JOIN mg.tag t ON t."id:ID(Tag)" = release_tag.tag
+         INNER JOIN tag mbt ON mbt.id = release_tag.tag
+         INNER JOIN mg.tag t ON t.tag = mbt.name
 WHERE release_tag.count > 0;
 
 CREATE OR REPLACE VIEW mg.artist_tag AS
 SELECT a.gid                                                as ":START_ID(Artist)",
-       artist_tag.tag                                       as ":END_ID(Tag)",
+       t."id:ID(Tag)"                                       as ":END_ID(Tag)",
        greatest(least(artist_tag.count::float / 8, 1), 0.2) as "weight:float"
 FROM artist_tag
          INNER JOIN artist a on artist_tag.artist = a.id
-         INNER JOIN mg.tag t ON t."id:ID(Tag)" = artist_tag.tag;
+         INNER JOIN tag mbt ON mbt.id = artist_tag.tag
+         INNER JOIN mg.tag t ON t.tag = mbt.name
+UNION ALL
+SELECT DISTINCT a.gid          as ":START_ID(Artist)",
+                t."id:ID(Tag)" as ":END_ID(Tag)",
+                0.5            as "weight:float"
+FROM mg.lastfm_artist_tag lfmt
+         INNER JOIN mg.lastfm_artist lfma on lfmt.name = lfma.name
+         INNER JOIN artist a on a.gid = lfma.mbid
+         INNER JOIN mg.tag t ON t.tag = lower(lfmt.tag)
+UNION ALL
+SELECT DISTINCT a.gid          as ":START_ID(Artist)",
+                t."id:ID(Tag)" as ":END_ID(Tag)",
+                0.5            as "weight:float"
+FROM mg.spotify_artist_tag spott
+         INNER JOIN mg.spotify_artist spota on spota.spotid = spott.spotid
+         INNER JOIN artist a on a.gid = spota.mbid
+         INNER JOIN mg.tag t ON t.tag = lower(spott.tag);
 
 CREATE OR REPLACE VIEW mg.tag_tag AS
-SELECT tag_relation.tag1                                        as ":START_ID(Tag)",
-       tag_relation.tag2                                        as ":END_ID(Tag)",
+SELECT t1."id:ID(Tag)"                                          as ":START_ID(Tag)",
+       t2."id:ID(Tag)"                                          as ":END_ID(Tag)",
        greatest(least(tag_relation.weight::float / 12, 1), 0.2) as "weight:float"
-FROM tag_relation;
+FROM tag_relation
+         INNER JOIN tag mbt1 ON mbt1.id = tag_relation.tag1
+         INNER JOIN tag mbt2 ON mbt2.id = tag_relation.tag2
+         INNER JOIN mg.tag t1 ON mbt1.name = t1.tag
+         INNER JOIN mg.tag t2 ON mbt1.name = t2.tag;
+
 
 CREATE OR REPLACE VIEW mg.label AS
-SELECT label.gid                 as "id:ID(Label)",
+SELECT label.gid               as "id:ID(Label)",
        label.name,
-       fn_sortname(label.name)   as sortname,
+       fn_sortname(label.name) as sortname,
 --        label_code                    as code,
-       concat('Label;', lt.name) as ":LABEL"
+       (CASE
+            WHEN lt.name IS NULL
+                THEN concat('Label;', lt.name)
+            ELSE 'Label' END)  as ":LABEL"
 FROM label
-         INNER JOIN label_type lt on label.type = lt.id;
+         LEFT JOIN label_type lt on label.type = lt.id;
 
 CREATE OR REPLACE VIEW mg.release_label AS
-SELECT l.gid as ":START_ID(Release)",
-       r.gid as ":END_ID(Label)"
+SELECT rg.gid as ":START_ID(Release)",
+       l.gid  as ":END_ID(Label)"
 FROM l_label_release
          INNER JOIN label l on l_label_release.entity0 = l.id
-         INNER JOIN release r on l_label_release.entity1 = r.id;
+         INNER JOIN release r on l_label_release.entity1 = r.id
+         INNER JOIN release_group rg on r.release_group = rg.id;
 -- UNION
 -- SELECT l.gid as ":START_ID(Release)",
 --        r.gid as ":END_ID(Label)"
