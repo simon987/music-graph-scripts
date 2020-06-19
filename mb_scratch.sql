@@ -131,8 +131,8 @@ SELECT gid                                                 as "id:ID(Artist)",
        fn_sortname(artist.name, sort_name)                 as sortname,
        COALESCE(begin_date_year, 0)                        as "year:int",
        comment,
-       COALESCE(lfm.listeners, 0)                          as "listeners",
-       COALESCE(lfm.playcount, 0)                          as "playcount",
+       COALESCE(lfm.listeners, 0)                          as "listeners:int",
+       COALESCE(lfm.playcount, 0)                          as "playcount:int",
        (CASE WHEN type = 2 THEN 'Group' ELSE 'Artist' END) as ":LABEL"
 FROM artist
          LEFT JOIN mg.lastfm_artist lfa ON lfa.mbid = artist.gid
@@ -417,6 +417,7 @@ CREATE TABLE mg.spotify_artist_track
 (
     spotid TEXT,
     track  TEXT,
+    album  TEXT,
     url    TEXT,
     PRIMARY KEY (spotid, track)
 );

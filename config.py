@@ -5,7 +5,7 @@ config = {
     "USER": "musicbrainz",
     "PASSWORD": "musicbrainz",
     "HOST": "127.0.0.1",
-    "PORT": 5433,
+    "PORT": 5432,
 
     "LASTFM_APIKEY": os.environ.get("LASTFM_APIKEY"),
     "LASTFM_USER": os.environ.get("LASTFM_USER"),

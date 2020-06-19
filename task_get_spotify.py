@@ -79,13 +79,13 @@ def get_tracks(conn, spotify, spotid):
     for track in data["tracks"]:
         if track["name"] in done:
             continue
-        unique_tracks.append((track["name"], track["preview_url"]))
+        unique_tracks.append((track["name"], track["album"]["name"], track["preview_url"]))
         done.add(track["name"])
 
     if unique_tracks:
         cur.execute(
-            "INSERT INTO mg.spotify_artist_track (spotid, track, url) VALUES %s" %
-            ",".join("('%s', '%s', '%s')" % (i, t[0].replace("'", "''"), t[1])
+            "INSERT INTO mg.spotify_artist_track (spotid, track, album, url) VALUES %s" %
+            ",".join("('%s', '%s', '%s', '%s')" % (i, t[0].replace("'", "''"), t[1].replace("'", "''"), t[2])
                      for (i, t) in zip(repeat(spotid), unique_tracks))
         )
 
