@@ -14,21 +14,22 @@ mkdir workspace 2> /dev/null
 
 ${NEO4J_HOME}/bin/neo4j stop
 rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}"
+rm -rf "${NEO4J_HOME}/data/transactions/${DATABASE}"
 
 (
   cd workspace
 
-#  copy_csv "label"
-#  copy_csv "artist_artist"
-#  copy_csv "artist_release"
-#  copy_csv "artist_tag"
-#  copy_csv "release_tag"
-#  copy_csv "release_label"
-#  copy_csv "tag_tag"
-#  copy_csv "label_label"
-#  copy_csv "release"
-#  copy_csv "artist"
-#  copy_csv "tag"
+  copy_csv "label"
+  copy_csv "artist_artist"
+  copy_csv "artist_release"
+  copy_csv "artist_tag"
+  copy_csv "release_tag"
+  copy_csv "release_label"
+  copy_csv "tag_tag"
+  copy_csv "label_label"
+  copy_csv "release"
+  copy_csv "artist"
+  copy_csv "tag"
 
   rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}" 2>/dev/null
   . ${NEO4J_HOME}/bin/neo4j-admin import \
@@ -45,7 +46,7 @@ rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}"
       --relationships=IS_RELATED_TO="tag_tag.csv"\
       --relationships="label_label.csv"
 
-#  rm ./*.csv
+  rm ./*.csv
 )
 
 

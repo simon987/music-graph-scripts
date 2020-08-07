@@ -173,7 +173,7 @@ WHERE s0.mbid IN (SELECT gid FROM artist)
 
 
 CREATE OR REPLACE VIEW mg.release AS
-SELECT release_group.gid                      as ":id:ID(Release)",
+SELECT release_group.gid                      as "id:ID(Release)",
        release_group.name,
        coalesce(m.first_release_date_year, 0) as "year:int",
        CONCAT('Release;', t.name)             as ":LABEL"
