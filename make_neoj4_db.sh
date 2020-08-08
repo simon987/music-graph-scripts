@@ -12,16 +12,14 @@ copy_csv() {
 
 mkdir workspace 2> /dev/null
 
-${NEO4J_HOME}/bin/neo4j stop
-rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}"
-rm -rf "${NEO4J_HOME}/data/transactions/${DATABASE}"
-
 (
   cd workspace
 
+  copy_csv "track"
   copy_csv "label"
   copy_csv "artist_artist"
   copy_csv "artist_release"
+  copy_csv "artist_track"
   copy_csv "artist_tag"
   copy_csv "release_tag"
   copy_csv "release_label"
@@ -31,19 +29,24 @@ rm -rf "${NEO4J_HOME}/data/transactions/${DATABASE}"
   copy_csv "artist"
   copy_csv "tag"
 
-  rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}" 2>/dev/null
+  ${NEO4J_HOME}/bin/neo4j stop
+  rm -rf "${NEO4J_HOME}/data/databases/${DATABASE}"
+  rm -rf "${NEO4J_HOME}/data/transactions/${DATABASE}"
+
   . ${NEO4J_HOME}/bin/neo4j-admin import \
       --database "${DATABASE}"\
       --nodes=MusicBrainzEntity="artist.csv"\
       --nodes=MusicBrainzEntity="release.csv"\
       --nodes=Tag="tag.csv"\
       --nodes=MusicBrainzEntity="label.csv"\
+      --nodes="track.csv"\
       --relationships="artist_artist.csv"\
       --relationships="artist_release.csv"\
       --relationships=IS_TAGGED="artist_tag.csv"\
       --relationships=IS_TAGGED="release_tag.csv"\
       --relationships=RELEASE_UNDER="release_label.csv"\
       --relationships=IS_RELATED_TO="tag_tag.csv"\
+      --relationships=REL_TRACK="artist_track.csv"\
       --relationships="label_label.csv"
 
   rm ./*.csv
@@ -51,5 +54,5 @@ rm -rf "${NEO4J_HOME}/data/transactions/${DATABASE}"
 
 
 ${NEO4J_HOME}/bin/neo4j start
-sleep 15
+sleep 60
 ${NEO4J_HOME}/bin/cypher-shell < seed.cypher

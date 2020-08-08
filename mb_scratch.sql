@@ -126,14 +126,14 @@ VALUES ('label rename', 'WAS_RENAMED_TO'),
 
 
 CREATE OR REPLACE VIEW mg.artist AS
-SELECT gid                                                 as "id:ID(Artist)",
+SELECT gid                                                        as "id:ID(Artist)",
        artist.name,
-       fn_sortname(artist.name, sort_name)                 as sortname,
-       COALESCE(begin_date_year, 0)                        as "year:int",
+       fn_sortname(artist.name, sort_name)                        as sortname,
+       COALESCE(begin_date_year, 0)                               as "year:int",
        comment,
-       COALESCE(lfm.listeners, 0)                          as "listeners:int",
-       COALESCE(lfm.playcount, 0)                          as "playcount:int",
-       (CASE WHEN type = 2 THEN 'Group' ELSE 'Artist' END) as ":LABEL"
+       COALESCE(lfm.listeners, 0)                                 as "listeners:int",
+       COALESCE(lfm.playcount, 0)                                 as "playcount:int",
+       (CASE WHEN type = 2 THEN 'Artist;Group' ELSE 'Artist' END) as ":LABEL"
 FROM artist
          LEFT JOIN mg.lastfm_artist lfa ON lfa.mbid = artist.gid
          LEFT JOIN mg.lastfm_artist_meta lfm ON lfa.name = lfm.name;
@@ -162,7 +162,7 @@ WHERE lfa0.mbid IN (SELECT gid FROM artist)
 UNION ALL
 SELECT s0.mbid,
        s1.mbid,
-       index::float,
+       index::float / 20,
        'IS_RELATED_TO'
 FROM mg.spotify_artist_artist
          INNER JOIN mg.spotify_artist s0 ON s0.spotid = mg.spotify_artist_artist.spotid0
@@ -188,10 +188,12 @@ SELECT a.gid     as ":START_ID(Artist)",
 FROM l_artist_release_group
          INNER JOIN artist a on a.id = l_artist_release_group.entity0
          INNER JOIN release_group rg on rg.id = l_artist_release_group.entity1
+         INNER JOIN release r on r.release_group = l_artist_release_group.id
          INNER JOIN link l on l.id = l_artist_release_group.link
          INNER JOIN link_type lt ON lt.id = l.link_type
          INNER JOIN mg.translate_artist_release_rel t ON t.mb_name = lt.name
 WHERE t.mg_name IS NOT NULL
+  AND r.status = 1
 UNION ALL
 SELECT a.gid     as ":START_ID(Artist)",
        rg.gid    as ":END_ID(Release)",
@@ -204,6 +206,7 @@ FROM l_artist_release
          INNER JOIN link_type lt ON lt.id = l.link_type
          INNER JOIN mg.translate_artist_release_rel t ON t.mb_name = lt.name
 WHERE t.mg_name IS NOT NULL
+  AND r.status = 1
 UNION ALL
 SELECT a.gid          as ":START_ID(Artist)",
        rg.gid         as ":END_ID(Release)",
@@ -211,13 +214,36 @@ SELECT a.gid          as ":START_ID(Artist)",
 FROM release
          INNER JOIN artist_credit_name cn ON cn.artist_credit = release.artist_credit
          INNER JOIN artist a on a.id = cn.artist
-         INNER JOIN release_group rg on rg.id = release.release_group;
+         INNER JOIN release_group rg on rg.id = release.release_group
+WHERE status = 1;
 
+CREATE OR REPLACE VIEW mg.track AS
+SELECT row_number() over (ORDER BY sa.mbid) as "id:ID(Track)",
+       mg.spotify_artist_track.album        as "album",
+       mg.spotify_artist_track.track        as "track",
+       mg.spotify_artist_track.url          as "url"
+FROM mg.spotify_artist_track
+         INNER JOIN mg.spotify_artist sa ON spotify_artist_track.spotid = sa.spotid
+         INNER JOIN mg.artist ON "id:ID(Artist)" = sa.mbid
+WHERE url != 'None';
+
+
+CREATE OR REPLACE VIEW mg.artist_track AS
+SELECT sa.mbid                              as ":START_ID(Artist)",
+       row_number() over (ORDER BY sa.mbid) as ":END_ID(Track)"
+FROM mg.spotify_artist_track
+         INNER JOIN mg.spotify_artist sa ON spotify_artist_track.spotid = sa.spotid
+            INNER JOIN mg.artist ON "id:ID(Artist)" = sa.mbid
+WHERE url != 'None';
+
+
+DROP VIEW mg.tag CASCADE ;
 CREATE OR REPLACE VIEW mg.tag AS
 WITH occurences AS (
-    SELECT tag, COUNT(*) as count
+    SELECT name,
+           COUNT(*) as count
     FROM (
-             SELECT lower(name) as tag
+             SELECT lower(name) as name
              FROM release_group_tag
                       INNER JOIN tag t ON t.id = tag
              UNION ALL
@@ -231,10 +257,10 @@ WITH occurences AS (
              SELECT tag
              FROM mg.spotify_artist_tag
          ) as tags
-    GROUP BY tag
+    GROUP BY name
 )
-SELECT row_number() over (ORDER BY tag) as "id:ID(Tag)",
-       tag,
+SELECT row_number() over (ORDER BY name) as "id:ID(Tag)",
+       name,
        count                            as "occurences:int"
 FROM occurences
 WHERE count > 5;
@@ -247,7 +273,7 @@ SELECT rg.gid                                                      as ":START_ID
 FROM release_group_tag
          INNER JOIN release_group rg ON rg.id = release_group_tag.release_group
          INNER JOIN tag mbt ON mbt.id = release_group_tag.tag
-         INNER JOIN mg.tag t ON t.tag = mbt.name
+         INNER JOIN mg.tag t ON t.name = mbt.name
 WHERE release_group_tag.count > 0
 UNION ALL
 SELECT rg.gid                                                as ":START_ID(Release)",
@@ -257,8 +283,9 @@ FROM release_tag
          INNER JOIN release r ON r.id = release_tag.release
          INNER JOIN release_group rg ON rg.id = r.release_group
          INNER JOIN tag mbt ON mbt.id = release_tag.tag
-         INNER JOIN mg.tag t ON t.tag = mbt.name
-WHERE release_tag.count > 0;
+         INNER JOIN mg.tag t ON t.name = mbt.name
+WHERE release_tag.count > 0
+  AND r.status = 1;
 
 CREATE OR REPLACE VIEW mg.artist_tag AS
 SELECT a.gid                                                as ":START_ID(Artist)",
@@ -267,7 +294,7 @@ SELECT a.gid                                                as ":START_ID(Artist
 FROM artist_tag
          INNER JOIN artist a on artist_tag.artist = a.id
          INNER JOIN tag mbt ON mbt.id = artist_tag.tag
-         INNER JOIN mg.tag t ON t.tag = mbt.name
+         INNER JOIN mg.tag t ON t.name = mbt.name
 UNION ALL
 SELECT DISTINCT a.gid          as ":START_ID(Artist)",
                 t."id:ID(Tag)" as ":END_ID(Tag)",
@@ -275,7 +302,7 @@ SELECT DISTINCT a.gid          as ":START_ID(Artist)",
 FROM mg.lastfm_artist_tag lfmt
          INNER JOIN mg.lastfm_artist lfma on lfmt.name = lfma.name
          INNER JOIN artist a on a.gid = lfma.mbid
-         INNER JOIN mg.tag t ON t.tag = lower(lfmt.tag)
+         INNER JOIN mg.tag t ON t.name = lower(lfmt.tag)
 UNION ALL
 SELECT DISTINCT a.gid          as ":START_ID(Artist)",
                 t."id:ID(Tag)" as ":END_ID(Tag)",
@@ -283,7 +310,7 @@ SELECT DISTINCT a.gid          as ":START_ID(Artist)",
 FROM mg.spotify_artist_tag spott
          INNER JOIN mg.spotify_artist spota on spota.spotid = spott.spotid
          INNER JOIN artist a on a.gid = spota.mbid
-         INNER JOIN mg.tag t ON t.tag = lower(spott.tag);
+         INNER JOIN mg.tag t ON t.name = lower(spott.tag);
 
 CREATE OR REPLACE VIEW mg.tag_tag AS
 SELECT t1."id:ID(Tag)"                                          as ":START_ID(Tag)",
@@ -292,8 +319,8 @@ SELECT t1."id:ID(Tag)"                                          as ":START_ID(Ta
 FROM tag_relation
          INNER JOIN tag mbt1 ON mbt1.id = tag_relation.tag1
          INNER JOIN tag mbt2 ON mbt2.id = tag_relation.tag2
-         INNER JOIN mg.tag t1 ON mbt1.name = t1.tag
-         INNER JOIN mg.tag t2 ON mbt1.name = t2.tag;
+         INNER JOIN mg.tag t1 ON mbt1.name = t1.name
+         INNER JOIN mg.tag t2 ON mbt1.name = t2.name;
 
 
 CREATE OR REPLACE VIEW mg.label AS
@@ -314,7 +341,8 @@ SELECT rg.gid as ":START_ID(Release)",
 FROM l_label_release
          INNER JOIN label l on l_label_release.entity0 = l.id
          INNER JOIN release r on l_label_release.entity1 = r.id
-         INNER JOIN release_group rg on r.release_group = rg.id;
+         INNER JOIN release_group rg on r.release_group = rg.id
+WHERE r.status = 1;
 -- UNION
 -- SELECT l.gid as ":START_ID(Release)",
 --        r.gid as ":END_ID(Label)"
